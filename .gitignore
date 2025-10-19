@@ -1,0 +1,12 @@
+__pycache__/
+.kilocode/
+data/
+venv/
+create_token.html
+decode_token.py
+generate_token.py
+openapi.json
+update_config.py
+requirements.txt
+header_proxy.py
+.env

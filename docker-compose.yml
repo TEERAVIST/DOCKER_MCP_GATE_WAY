@@ -1,0 +1,170 @@
+# docker-compose.yml
+version: "3.9"
+
+services:
+  # 1) MCP Gateway with Admin UI
+  mcp-gateway:
+    image: ghcr.io/ibm/mcp-context-forge:0.8.0
+    container_name: mcp-gateway
+    ports:
+      - "4444:4444"
+    
+    # Corrected: All environment variables consolidated here
+    environment:
+      # turn on UI + admin API
+      MCPGATEWAY_UI_ENABLED: "true"
+      PLUGINS_ENABLED: true
+      MCPGATEWAY_ADMIN_API_ENABLED: "true"
+      HOST: "0.0.0.0"
+      PORT: "4444"
+      # demo auth (change in real use!)
+      JWT_SECRET_KEY: "my-super-secret-jwt-key-for-mcp-gateway-2025"
+      BASIC_AUTH_USER: "admin"
+      BASIC_AUTH_PASSWORD: "changeme"
+      AUTH_REQUIRED: "true"
+      PLATFORM_ADMIN_EMAIL: "admin@example.com"
+      PLATFORM_ADMIN_PASSWORD: "changeme"
+      PLATFORM_ADMIN_FULL_NAME: "Platform Administrator"
+      # SQLite persistence inside the mounted volume
+      DATABASE_URL: "sqlite:////data/mcp.db"
+
+    restart: unless-stopped
+    
+    # Corrected: 'volumes' is now at the proper service level indentation
+    volumes:
+      - ./data:/data
+
+  # 2) Stdio→SSE bridge that spawns kaggle-mcp with uvx
+  kaggle-bridge:
+    image: python:3.11-slim
+    container_name: kaggle-bridge
+    env_file: .env
+    
+    # Optional persistent downloads dir:
+    volumes:
+      - ./kaggle-data:/data
+
+    # The command is syntactically fine, but ensure proper YAML block syntax
+    command: 
+      - bash
+      - -lc
+      - >
+        set -euo pipefail &&
+        apt-get update &&
+        apt-get install -y --no-install-recommends git ca-certificates &&
+        rm -rf /var/lib/apt/lists/* &&
+        pip install --no-cache-dir --upgrade pip mcp-contextforge-gateway &&
+        rm -rf /app/kaggle-mcp &&
+        git clone --depth=1 https://github.com/arrismo/kaggle-mcp /app/kaggle-mcp &&
+        pip install --no-cache-dir -r /app/kaggle-mcp/requirements.txt &&
+        printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail' \
+          'cd /app/kaggle-mcp' \
+          'export PYTHONPATH="/app/kaggle-mcp/src:/app/kaggle-mcp${PYTHONPATH:+:$PYTHONPATH}"' \
+          'echo "[run-kaggle-mcp] pwd=$(pwd)"; ls -la' \
+          'exec python -m server' \
+          > /usr/local/bin/run-kaggle-mcp.sh &&
+        chmod +x /usr/local/bin/run-kaggle-mcp.sh &&
+        python -m mcpgateway.translate \
+          --stdio "/usr/local/bin/run-kaggle-mcp.sh" \
+          --expose-sse \
+          --host 0.0.0.0 \
+          --port 9000
+    # Not publishing 9000 to host; gateway accesses it via bridge network
+    expose:
+      - "9000"
+    restart: unless-stopped
+  
+  gistpad-bridge:
+    image: supercorp/supergateway:latest
+    container_name: gistpad-bridge
+    env_file: .env
+    # ไม่ต้องเปิด port ออกนอกเครื่อง ให้ gateway เข้าหาด้วยชื่อ service
+    expose:
+      - "9010"
+    # ใช้ entrypoint ของภาพ supergateway แล้วส่ง args เข้าไปเลย
+    # --stdio ต้องเป็น "คำสั่งเดียว" (ตัวอย่างนี้ใช้ npx เรียก gistpad-mcp)
+    command:
+      - --stdio
+      - "npx -y gistpad-mcp --daily --starred --archived"
+      - --port
+      - "9010"
+      - --ssePath
+      - "/sse"
+      - --messagePath
+      - "/message"
+      # หมายเหตุ: baseUrl ไม่จำเป็นใน Docker network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9010/sse | head -c 1 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+
+  mssql-bridge:
+    image: python:3.11-slim
+    container_name: mssql-bridge
+    env_file: .env
+    # ถ้าต้องการให้ container นี้เรียกฐานข้อมูลบนเครื่อง host (Linux) ผ่านชื่อ host.docker.internal:
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+        apt-get install -y --no-install-recommends ca-certificates gcc g++ unixodbc-dev curl
+        rm -rf /var/lib/apt/lists/*
+
+        pip install --no-cache-dir --upgrade pip mcp-contextforge-gateway
+        # ติดตั้งทั้งตัว MCP และไดรเวอร์สองสาย เพื่อความเข้ากันได้
+        pip install --no-cache-dir microsoft_sql_server_mcp python-tds pymssql
+
+        # --- Monkey patch: map encrypt -> encryption สำหรับ pymssql ผ่าน sitecustomize ---
+        mkdir -p /app/patch
+        cat >/app/patch/sitecustomize.py <<'PY'
+        import sys
+        sys.stderr.write("[sitecustomize] loaded\n")
+        try:
+            import pymssql as _pymssql
+            _orig = _pymssql.connect
+            def _connect(*args, **kwargs):
+                # map encrypt(bool) -> encryption("require"/"off")
+                if 'encrypt' in kwargs:
+                    v = kwargs.pop('encrypt')
+                    on = v if isinstance(v, bool) else str(v).lower() in ('1','true','yes','on')
+                    kwargs['encryption'] = 'require' if on else 'off'
+                # เผื่อมีคีย์ชื่ออื่นเกี่ยวกับ cert โผล่มา
+                kwargs.pop('trust_server_certificate', None)
+                kwargs.pop('trustServerCertificate', None)
+                return _orig(*args, **kwargs)
+            _pymssql.connect = _connect
+            sys.stderr.write("[sitecustomize] pymssql.connect patched\n")
+        except Exception as e:
+            sys.stderr.write(f"[sitecustomize] patch skipped: {e}\n")
+        PY
+        export PYTHONPATH="/app/patch${PYTHONPATH:+:$PYTHONPATH}"
+
+        # กัน side-effect จาก env เก่าใน container
+        unset MSSQL_ENCRYPT MSSQL_TRUST_SERVER_CERTIFICATE || true
+
+        # ★ วางทุกออปชันบนบรรทัดเดียว กัน --stdio หลุดเป็นคำสั่งใหม่
+        python -m mcpgateway.translate --stdio "python -m mssql_mcp_server" --expose-sse --host 0.0.0.0 --port 9020
+
+    expose:
+      - "9020"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sS -D- http://localhost:9020/sse --max-time 2 | grep -q 'HTTP/1.1 200'"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+
+
+networks:
+  default:
+    name: mcpnet
