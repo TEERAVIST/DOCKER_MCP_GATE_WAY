@@ -10,7 +10,7 @@ docker logs mcp-gateway --tail 200
 
 if u have vpn
 ```md
-install https://packages.diladele.com/squid/4.14/squid.msi
+install https://packages.diladele.com/squid/<version>/squid.msi
 ```
 
 config Drive:\Squid\etc\squid\squid.conf
