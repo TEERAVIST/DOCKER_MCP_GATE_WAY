@@ -10,3 +10,4 @@ update_config.py
 requirements.txt
 header_proxy.py
 .env
+Squid
