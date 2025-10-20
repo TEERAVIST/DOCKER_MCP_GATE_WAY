@@ -165,6 +165,58 @@ services:
 
 
 
+  # 5) Context7 MCP Server
+  context7-bridge:
+    image: supercorp/supergateway:latest
+    container_name: context7-bridge
+    env_file: .env          
+    expose:
+      - "9030"
+    command:
+      - --stdio
+      - "npx -y @upstash/context7-mcp@latest"
+      - --port
+      - "9030"
+      - --ssePath
+      - "/sse"
+      - --messagePath
+      - "/message"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9030/sse | head -c 1 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+
+  playwright-bridge:
+    image: mcr.microsoft.com/playwright:v1.56.1-noble   # Official image with browsers & deps
+    container_name: playwright-bridge
+    env_file: .env
+    # Optional: persist outputs (videos/traces/pdf/screenshots) to host
+    volumes:
+      - ./playwright-data:/data
+    shm_size: "1g"             # Avoid Chromium crashes in Docker (/dev/shm)
+    command:
+      - bash
+      - -lc
+      - >
+        set -euo pipefail &&
+        apt-get update &&
+        apt-get install -y --no-install-recommends python3 python3-venv ca-certificates curl &&
+        rm -rf /var/lib/apt/lists/* &&
+        python3 -m venv /venv &&
+        /venv/bin/python -m pip install --no-cache-dir mcp-contextforge-gateway &&
+        /venv/bin/python -m mcpgateway.translate --stdio "npx -y @playwright/mcp@latest --headless --browser=chromium --no-sandbox --output-dir=/data --allowed-hosts=*" --expose-sse --host 0.0.0.0 --port 9040
+    expose:
+      - "9040"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sS -D- http://localhost:9040/sse --max-time 3 | grep -q 'HTTP/1.1 200'"]
+      interval: 10s
+      timeout: 4s
+      retries: 5
+
 networks:
   default:
     name: mcpnet
