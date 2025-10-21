@@ -1,0 +1,132 @@
+version: "3.9"
+
+# Common environment variables template
+x-common-variables: &common-variables
+  http_proxy: "${PROXY_SERVER}"
+  https_proxy: "${PROXY_SERVER}"
+  HTTP_PROXY: "${PROXY_SERVER}"
+  HTTPS_PROXY: "${PROXY_SERVER}"
+  no_proxy: "${PROXY_BYPASS}"
+  NO_PROXY: "${PROXY_BYPASS}"
+  TZ: "${TIMEZONE:-UTC}"
+
+# Common bridge configuration for all MCP bridge services
+x-bridge-config: &bridge-config
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  restart: unless-stopped
+  networks:
+    - mcpnet
+
+# Common health check configuration
+x-health-check: &health-check
+  interval: ${HEALTH_CHECK_INTERVAL:-30s}
+  timeout: 10s
+  retries: 3
+  start_period: 40s
+
+# Common resource limits for bridge services
+x-bridge-resources: &bridge-resources
+  limits:
+    memory: ${DEFAULT_BRIDGE_MEMORY_LIMIT:-256m}
+    cpus: '${DEFAULT_BRIDGE_CPU_LIMIT:-0.3}'
+
+# Include network configuration
+include:
+  - compose.net.yml
+
+services:
+  # Playwright MCP Bridge - Browser automation and web scraping
+  playwright-bridge:
+    image: mcr.microsoft.com/playwright:v1.56.1-noble
+    container_name: playwright-bridge
+    env_file: .env
+    
+    # Use common bridge configuration
+    <<: *bridge-config
+    
+    environment:
+      <<: *common-variables
+      PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright"
+      PLAYWRIGHT_OUTPUT_DIR: "/data"
+      PLAYWRIGHT_TIMEOUT: "${PLAYWRIGHT_TIMEOUT:-30000}"
+      PLAYWRIGHT_USER_AGENT: "${PLAYWRIGHT_USER_AGENT:-Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36}"
+      PLAYWRIGHT_VIEWPORT_WIDTH: "${PLAYWRIGHT_VIEWPORT_WIDTH:-1280}"
+      PLAYWRIGHT_VIEWPORT_HEIGHT: "${PLAYWRIGHT_VIEWPORT_HEIGHT:-720}"
+      PLAYWRIGHT_IGNORE_HTTPS_ERRORS: "${PLAYWRIGHT_IGNORE_HTTPS_ERRORS:-true}"
+      PLAYWRIGHT_ACCEPT_INSECURE_CERTS: "${PLAYWRIGHT_ACCEPT_INSECURE_CERTS:-true}"
+
+    volumes:
+      - ${DATA_DIR:-./data}/playwright:/data
+      - ${LOG_DIR:-./logs}:/logs
+      - playwright_cache:/ms-playwright
+
+    # Shared memory configuration for browser stability
+    shm_size: "${SHM_SIZE:-1g}"
+
+    command:
+      - bash
+      - -lc
+      - >
+        set -euo pipefail &&
+        export http_proxy="${PROXY_SERVER:-}"; export https_proxy="${PROXY_SERVER:-}";
+        export HTTP_PROXY="$http_proxy"; export HTTPS_PROXY="$https_proxy";
+        export no_proxy="${PROXY_BYPASS:-localhost,127.0.0.1}"; export NO_PROXY="$no_proxy";
+        apt-get update &&
+        apt-get install -y --no-install-recommends python3 python3-venv ca-certificates curl &&
+        rm -rf /var/lib/apt/lists/* &&
+        python3 -m venv /venv &&
+        /venv/bin/python -m pip install --no-cache-dir mcp-contextforge-gateway &&
+        
+        # Configure Playwright arguments
+        ARGS="--headless --browser=chromium --no-sandbox --output-dir=/data --allowed-hosts=*";
+        [ -n "${PROXY_SERVER:-}" ] && ARGS="$ARGS --proxy-server=${PROXY_SERVER}";
+        [ -n "${PROXY_BYPASS:-}" ] && ARGS="$ARGS --proxy-bypass=${PROXY_BYPASS}";
+        [ -n "${PLAYWRIGHT_TIMEOUT:-}" ] && ARGS="$ARGS --timeout=${PLAYWRIGHT_TIMEOUT}";
+        [ -n "${PLAYWRIGHT_USER_AGENT:-}" ] && ARGS="$ARGS --user-agent=${PLAYWRIGHT_USER_AGENT}";
+        
+        echo "[playwright-bridge] args: $ARGS";
+        echo "[playwright-bridge] browser: chromium";
+        echo "[playwright-bridge] output dir: /data";
+        
+        # Start MCP bridge with Playwright
+        /venv/bin/python -m mcpgateway.translate --stdio "npx -y @playwright/mcp@latest $ARGS" --expose-sse --host 0.0.0.0 --port 9040
+
+    expose:
+      - "9040"
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sS -D- http://localhost:9040/sse --max-time 3 | grep -q 'HTTP/1.1 200'"]
+      <<: *health-check
+      timeout: 5s
+
+    deploy:
+      resources:
+        limits:
+          memory: ${PLAYWRIGHT_BRIDGE_MEMORY_LIMIT:-1g}
+          cpus: '${PLAYWRIGHT_BRIDGE_CPU_LIMIT:-1.0}'
+        reservations:
+          memory: ${PLAYWRIGHT_BRIDGE_MEMORY_RESERVATION:-512m}
+          cpus: '${PLAYWRIGHT_BRIDGE_CPU_RESERVATION:-0.5}'
+
+    profiles: ["browser", "all"]
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+        labels: "service=playwright-bridge,profile=browser"
+
+    security_opt:
+      - no-new-privileges:true
+
+
+# Additional volume for Playwright browser cache
+volumes:
+  playwright_cache:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR:-./data}/playwright-cache

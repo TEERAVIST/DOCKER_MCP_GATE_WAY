@@ -1,0 +1,48 @@
+# Network configuration for MCP Gateway services
+networks:
+  mcpnet:
+    name: ${NETWORK_NAME:-mcpnet}
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${NETWORK_SUBNET:-172.20.0.0/16}
+
+# Persistent volumes for data storage
+volumes:
+  mcp_data:
+    driver: local
+  kaggle_data:
+    driver: local
+  playwright_data:
+    driver: local
+
+# Common environment variables template
+x-common-variables: &common-variables
+  http_proxy: "${PROXY_SERVER}"
+  https_proxy: "${PROXY_SERVER}"
+  HTTP_PROXY: "${PROXY_SERVER}"
+  HTTPS_PROXY: "${PROXY_SERVER}"
+  no_proxy: "${PROXY_BYPASS}"
+  NO_PROXY: "${PROXY_BYPASS}"
+  TZ: "${TIMEZONE:-UTC}"
+
+# Common bridge configuration for all MCP bridge services
+x-bridge-config: &bridge-config
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  restart: unless-stopped
+  networks:
+    - mcpnet
+
+# Common health check configuration
+x-health-check: &health-check
+  interval: ${HEALTH_CHECK_INTERVAL:-30s}
+  timeout: 10s
+  retries: 3
+  start_period: 40s
+
+# Common resource limits for bridge services
+x-bridge-resources: &bridge-resources
+  limits:
+    memory: ${DEFAULT_BRIDGE_MEMORY_LIMIT:-256m}
+    cpus: '${DEFAULT_BRIDGE_CPU_LIMIT:-0.3}'
