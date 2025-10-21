@@ -1,0 +1,83 @@
+# filename: k8s/deployments/playwright-bridge.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: playwright-bridge
+  namespace: mcp-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: playwright-bridge }
+  template:
+    metadata:
+      labels:
+        app: playwright-bridge
+        app.kubernetes.io/name: mcp-gateway
+        app.kubernetes.io/component: playwright-bridge
+    spec:
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: "OnRootMismatch"
+      containers:
+      - name: playwright-bridge
+        image: mcr.microsoft.com/playwright/python:v1.51.0-noble
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9040
+          name: http
+        env:
+        - name: PLAYWRIGHT_OUTPUT_DIR
+          value: "/data"
+        - name: PROXY_SERVER
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
+        - name: PROXY_BYPASS
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_BYPASS, optional: true } }
+        volumeMounts:
+        - name: playwright-data
+          mountPath: /data
+        resources:
+          requests: { memory: "512Mi", cpu: "500m" }
+          limits:   { memory: "1Gi",   cpu: "1" }
+        startupProbe:
+          tcpSocket: { port: 9040 }
+          failureThreshold: 60
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket: { port: 9040 }
+          initialDelaySeconds: 10
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket: { port: 9040 }
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        command:
+        - bash
+        - -lc
+        - |
+          set -euo pipefail;
+          export http_proxy="${PROXY_SERVER:-}"; export https_proxy="${PROXY_SERVER:-}";
+          export HTTP_PROXY="$http_proxy";       export HTTPS_PROXY="$https_proxy";
+          export no_proxy="${PROXY_BYPASS:-localhost,127.0.0.1}"; export NO_PROXY="$no_proxy";
+
+          # ติดตั้ง Node.js + npm (จำเป็นต่อ npx)
+          apt-get update;
+          apt-get install -y --no-install-recommends ca-certificates curl nodejs npm;
+          rm -rf /var/lib/apt/lists/*;
+
+          python3 -V; pip3 -V;
+          pip3 install --no-cache-dir --break-system-packages mcp-contextforge-gateway;
+
+          ARGS="--headless --browser=chromium --no-sandbox --output-dir=/data --allowed-hosts=*";
+          [ -n "${PROXY_SERVER:-}" ]  && ARGS="$ARGS --proxy-server=${PROXY_SERVER}";
+          [ -n "${PROXY_BYPASS:-}" ]  && ARGS="$ARGS --proxy-bypass=${PROXY_BYPASS}";
+
+          echo "[playwright-bridge] args: $ARGS";
+          exec python3 -m mcpgateway.translate --stdio "npx -y @playwright/mcp@latest $ARGS" --expose-sse --host 0.0.0.0 --port 9040
+      volumes:
+      - name: playwright-data
+        persistentVolumeClaim:
+          claimName: playwright-data-pvc

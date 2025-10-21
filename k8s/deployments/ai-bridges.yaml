@@ -1,0 +1,151 @@
+# filename: k8s/deployments/ai-bridges.yaml
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: context7-bridge
+  namespace: mcp-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: context7-bridge }
+  template:
+    metadata:
+      labels:
+        app: context7-bridge
+        app.kubernetes.io/name: mcp-gateway
+        app.kubernetes.io/component: context7-bridge
+    spec:
+      containers:
+      - name: context7-bridge
+        image: supercorp/supergateway:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9030
+          name: http
+        env:
+        - name: CONTEXT7_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mcp-gateway-secrets
+              key: CONTEXT7_API_KEY
+        - name: http_proxy
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
+        - name: https_proxy
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
+        - name: HTTP_PROXY
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
+        - name: HTTPS_PROXY
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
+        - name: no_proxy
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_BYPASS, optional: true } }
+        - name: NO_PROXY
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_BYPASS, optional: true } }
+        resources:
+          requests: { memory: "256Mi", cpu: "200m" }
+          limits:   { memory: "512Mi", cpu: "500m" }
+        # ✅ startupProbe ปล่อยเวลาติดตั้ง npx
+        startupProbe:
+          tcpSocket: { port: 9030 }
+          failureThreshold: 30     # ~5 นาที (30 * 10s)
+          periodSeconds: 10
+        # ✅ ใช้ tcpSocket probe แทน httpGet "/"
+        livenessProbe:
+          tcpSocket: { port: 9030 }
+          initialDelaySeconds: 10
+          periodSeconds: 20
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket: { port: 9030 }
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 3
+        command:
+        - supergateway
+        - --stdio
+        - npx
+        - -y
+        - "@upstash/context7-mcp@latest"
+        - --port
+        - "9030"
+        - --host
+        - "0.0.0.0"
+      restartPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gistpad-bridge
+  namespace: mcp-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: gistpad-bridge }
+  template:
+    metadata:
+      labels:
+        app: gistpad-bridge
+        app.kubernetes.io/name: mcp-gateway
+        app.kubernetes.io/component: gistpad-bridge
+    spec:
+      containers:
+      - name: gistpad-bridge
+        image: supercorp/supergateway:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9010
+          name: http
+        env:
+        - name: GITHUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: mcp-gateway-secrets
+              key: GITHUB_TOKEN
+        - name: http_proxy
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
+        - name: https_proxy
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
+        - name: HTTP_PROXY
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
+        - name: HTTPS_PROXY
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
+        - name: no_proxy
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_BYPASS, optional: true } }
+        - name: NO_PROXY
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_BYPASS, optional: true } }
+        resources:
+          requests: { memory: "256Mi", cpu: "200m" }
+          limits:   { memory: "512Mi", cpu: "500m" }
+        startupProbe:
+          tcpSocket: { port: 9010 }
+          failureThreshold: 30
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket: { port: 9010 }
+          initialDelaySeconds: 10
+          periodSeconds: 20
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket: { port: 9010 }
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 3
+        # ✅ แยก args ห้ามใส่เป็นสตริงเดียว
+        command:
+        - supergateway
+        - --stdio
+        - npx
+        - -y
+        - gistpad-mcp
+        - --daily
+        - --starred
+        - --archived
+        - --port
+        - "9010"
+        - --host
+        - "0.0.0.0"
+      restartPolicy: Always

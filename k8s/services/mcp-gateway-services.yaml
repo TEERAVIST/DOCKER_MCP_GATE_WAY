@@ -1,0 +1,147 @@
+---
+# PostgreSQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: mcp-gateway
+  labels:
+    app: postgres
+    app.kubernetes.io/name: mcp-gateway
+    app.kubernetes.io/component: postgres
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5432
+    targetPort: 5432
+    protocol: TCP
+    name: postgres
+  selector:
+    app: postgres
+---
+# MCP Gateway Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-gateway
+  namespace: mcp-gateway
+  labels:
+    app: mcp-gateway
+    app.kubernetes.io/name: mcp-gateway
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 4444
+    targetPort: 4444
+    protocol: TCP
+    name: http
+  selector:
+    app: mcp-gateway
+---
+# Playwright Bridge Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: playwright-bridge
+  namespace: mcp-gateway
+  labels:
+    app: playwright-bridge
+    app.kubernetes.io/name: mcp-gateway
+    app.kubernetes.io/component: playwright-bridge
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9040
+    targetPort: 9040
+    protocol: TCP
+    name: http
+  selector:
+    app: playwright-bridge
+---
+# Context7 Bridge Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: context7-bridge
+  namespace: mcp-gateway
+  labels:
+    app: context7-bridge
+    app.kubernetes.io/name: mcp-gateway
+    app.kubernetes.io/component: context7-bridge
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9030
+    targetPort: 9030
+    protocol: TCP
+    name: http
+  selector:
+    app: context7-bridge
+---
+# Gistpad Bridge Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: gistpad-bridge
+  namespace: mcp-gateway
+  labels:
+    app: gistpad-bridge
+    app.kubernetes.io/name: mcp-gateway
+    app.kubernetes.io/component: gistpad-bridge
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9010
+    targetPort: 9010
+    protocol: TCP
+    name: http
+  selector:
+    app: gistpad-bridge
+---
+# Kaggle Bridge Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: kaggle-bridge
+  namespace: mcp-gateway
+  labels:
+    app: kaggle-bridge
+    app.kubernetes.io/name: mcp-gateway
+    app.kubernetes.io/component: kaggle-bridge
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9000
+    targetPort: 9000
+    protocol: TCP
+    name: http
+  selector:
+    app: kaggle-bridge
+---
+# MSSQL Bridge Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: mssql-bridge
+  namespace: mcp-gateway
+  labels:
+    app: mssql-bridge
+    app.kubernetes.io/name: mcp-gateway
+    app.kubernetes.io/component: mssql-bridge
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9020
+    targetPort: 9020
+    protocol: TCP
+    name: http
+  selector:
+    app: mssql-bridge

@@ -1,0 +1,225 @@
+# filename: k8s/deployments/data-bridges.yaml
+---
+# Kaggle Bridge Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kaggle-bridge
+  namespace: mcp-gateway
+  labels:
+    app.kubernetes.io/name: mcp-gateway
+    app.kubernetes.io/component: kaggle-bridge
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kaggle-bridge
+  template:
+    metadata:
+      labels:
+        app: kaggle-bridge
+        app.kubernetes.io/name: mcp-gateway
+        app.kubernetes.io/component: kaggle-bridge
+    spec:
+      containers:
+      - name: kaggle-bridge
+        image: python:3.11-slim
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9000
+          name: http
+        env:
+        - name: KAGGLE_USERNAME
+          valueFrom: { secretKeyRef: { name: mcp-gateway-secrets, key: KAGGLE_USERNAME } }
+        - name: KAGGLE_KEY
+          valueFrom: { secretKeyRef: { name: mcp-gateway-secrets, key: KAGGLE_KEY } }
+        - name: KAGGLE_DATA_DIR
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: KAGGLE_DATA_DIR } }
+        - name: http_proxy
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
+        - name: https_proxy
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
+        - name: HTTP_PROXY
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
+        - name: HTTPS_PROXY
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
+        - name: no_proxy
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_BYPASS, optional: true } }
+        - name: NO_PROXY
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_BYPASS, optional: true } }
+        - name: npm_config_proxy          # ช่วยกรณี npx หลังพร็อกซี
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
+        - name: npm_config_https_proxy
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
+        - name: PYTHONPATH
+          value: ""
+        volumeMounts:
+        - name: kaggle-data
+          mountPath: /data
+        resources:
+          requests: { memory: "256Mi", cpu: "200m" }
+          limits:   { memory: "768Mi", cpu: "600m" }
+        startupProbe:
+          tcpSocket: { port: 9000 }
+          failureThreshold: 30
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket: { port: 9000 }
+          initialDelaySeconds: 10
+          periodSeconds: 20
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket: { port: 9000 }
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 3
+        command:
+        - bash
+        - -lc
+        - |
+          set -euo pipefail;
+          export http_proxy="${PROXY_SERVER:-}"; export https_proxy="${PROXY_SERVER:-}";
+          export HTTP_PROXY="$http_proxy";       export HTTPS_PROXY="$https_proxy";
+          export no_proxy="${PROXY_BYPASS:-localhost,127.0.0.1}"; export NO_PROXY="$no_proxy";
+
+          # Fix SSL and repository issues
+          apt-get clean;
+          rm -rf /var/lib/apt/lists/*;
+          apt-get update --allow-releaseinfo-change || true;
+          
+          # Install packages with retry logic
+          for i in 1 2 3; do
+            apt-get install -y --no-install-recommends python3-pip curl nodejs npm && break || sleep 10;
+          done;
+          rm -rf /var/lib/apt/lists/*;
+
+          # Install Python packages with SSL verification disabled if needed
+          pip install --no-cache-dir --break-system-packages --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org mcp-contextforge-gateway || \
+          pip install --no-cache-dir --break-system-packages --no-ssl-verify mcp-contextforge-gateway || \
+          echo "Warning: mcp-contextforge-gateway installation failed, continuing anyway";
+
+          mkdir -p /tmp /data;
+          echo "Health check ready" > /tmp/health.txt;
+
+          # เริ่ม MCP Kaggle ผ่าน translator (stdio -> SSE)
+          exec python -m mcpgateway.translate --stdio "npx -y @kaggle/mcp@latest" --expose-sse --host 0.0.0.0 --port 9000
+      volumes:
+      - name: kaggle-data
+        persistentVolumeClaim:
+          claimName: kaggle-data-pvc
+      restartPolicy: Always
+---
+# MSSQL Bridge Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mssql-bridge
+  namespace: mcp-gateway
+  labels:
+    app.kubernetes.io/name: mcp-gateway
+    app.kubernetes.io/component: mssql-bridge
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mssql-bridge
+  template:
+    metadata:
+      labels:
+        app: mssql-bridge
+        app.kubernetes.io/name: mcp-gateway
+        app.kubernetes.io/component: mssql-bridge
+    spec:
+      containers:
+      - name: mssql-bridge
+        image: python:3.11-slim
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9020
+          name: http
+        env:
+        - name: MSSQL_SERVER
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: MSSQL_SERVER } }
+        - name: MSSQL_DATABASE
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: MSSQL_DATABASE } }
+        - name: MSSQL_USER
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: MSSQL_USER } }
+        - name: MSSQL_PASSWORD
+          valueFrom: { secretKeyRef: { name: mcp-gateway-secrets, key: MSSQL_PASSWORD } }
+        - name: MSSQL_PORT
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: MSSQL_PORT } }
+        - name: MSSQL_ENCRYPT
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: MSSQL_ENCRYPT } }
+        - name: MSSQL_TRUST_SERVER_CERTIFICATE
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: MSSQL_TRUST_SERVER_CERTIFICATE } }
+        - name: http_proxy
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
+        - name: https_proxy
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
+        - name: HTTP_PROXY
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
+        - name: HTTPS_PROXY
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
+        - name: no_proxy
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_BYPASS, optional: true } }
+        - name: NO_PROXY
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_BYPASS, optional: true } }
+        - name: npm_config_proxy
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
+        - name: npm_config_https_proxy
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
+        - name: PYTHONPATH
+          value: ""
+        resources:
+          requests: { memory: "256Mi", cpu: "200m" }
+          limits:   { memory: "768Mi", cpu: "600m" }
+        startupProbe:
+          tcpSocket: { port: 9020 }
+          failureThreshold: 30
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket: { port: 9020 }
+          initialDelaySeconds: 10
+          periodSeconds: 20
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket: { port: 9020 }
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 3
+        command:
+        - bash
+        - -lc
+        - |
+          set -euo pipefail &&
+          export http_proxy="${PROXY_SERVER:-}"; export https_proxy="${PROXY_SERVER:-}";
+          export HTTP_PROXY="$http_proxy"; export HTTPS_PROXY="$https_proxy";
+          export no_proxy="${PROXY_BYPASS:-localhost,127.0.0.1}"; export NO_PROXY="$no_proxy";
+          
+          # Fix SSL and repository issues
+          apt-get clean;
+          rm -rf /var/lib/apt/lists/*;
+          apt-get update --allow-releaseinfo-change || true;
+          
+          # Install packages with retry logic
+          for i in 1 2 3; do
+            apt-get install -y --no-install-recommends python3-pip curl nodejs npm && break || sleep 10;
+          done;
+          rm -rf /var/lib/apt/lists/*;
+
+          # Install Python packages with SSL verification disabled if needed
+          pip install --no-cache-dir --break-system-packages --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org mcp-contextforge-gateway || \
+          pip install --no-cache-dir --break-system-packages --no-ssl-verify mcp-contextforge-gateway || \
+          echo "Warning: mcp-contextforge-gateway installation failed, continuing anyway";
+          
+          mkdir -p /tmp &&
+          echo "Health check ready" > /tmp/health.txt &&
+          exec python -m mcpgateway.translate --stdio "npx -y @mssql/mcp@latest" --expose-sse --host 0.0.0.0 --port 9020
+      restartPolicy: Always
+---

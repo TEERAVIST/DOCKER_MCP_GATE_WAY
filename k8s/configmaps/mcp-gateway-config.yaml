@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-gateway-config
+  namespace: mcp-gateway
+  labels:
+    app.kubernetes.io/name: mcp-gateway
+    app.kubernetes.io/component: configmap
+    app.kubernetes.io/managed-by: kubectl
+data:
+  # Gateway Configuration
+  MCPGATEWAY_UI_ENABLED: "true"
+  PLUGINS_ENABLED: "true"
+  MCPGATEWAY_ADMIN_API_ENABLED: "true"
+  HOST: "0.0.0.0"
+  PORT: "4444"
+  AUTH_REQUIRED: "true"
+  
+  # Database Configuration
+  DATABASE_URL: "postgresql://mcp_user:your-secure-postgres-password@postgres:5432/mcp_gateway"
+  
+  # Timezone
+  TZ: "UTC"
+  
+  # Health Check Configuration
+  HEALTH_CHECK_INTERVAL: "30"
+  GLOBAL_HEALTH_CHECK_INTERVAL: "60"
+  
+  # Log Configuration
+  LOG_MAX_SIZE: "10m"
+  LOG_MAX_FILE: "3"
+  
+  # Playwright Configuration
+  PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright"
+  PLAYWRIGHT_OUTPUT_DIR: "/data"
+  PLAYWRIGHT_TIMEOUT: "30000"
+  PLAYWRIGHT_USER_AGENT: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+  PLAYWRIGHT_VIEWPORT_WIDTH: "1280"
+  PLAYWRIGHT_VIEWPORT_HEIGHT: "720"
+  PLAYWRIGHT_IGNORE_HTTPS_ERRORS: "true"
+  PLAYWRIGHT_ACCEPT_INSECURE_CERTS: "true"
+  SHM_SIZE: "1g"
+  
+  # Bridge Resource Limits
+  DEFAULT_BRIDGE_MEMORY_LIMIT: "256m"
+  DEFAULT_BRIDGE_CPU_LIMIT: "0.3"
+  
+  # Playwright Bridge Resource Limits
+  PLAYWRIGHT_BRIDGE_MEMORY_LIMIT: "1g"
+  PLAYWRIGHT_BRIDGE_CPU_LIMIT: "1.0"
+  PLAYWRIGHT_BRIDGE_MEMORY_RESERVATION: "512m"
+  PLAYWRIGHT_BRIDGE_CPU_RESERVATION: "0.5"
+  
+  # PostgreSQL Configuration
+  POSTGRES_DB: "mcp_gateway"
+  POSTGRES_USER: "mcp_user"
+  POSTGRES_PORT: "5432"
+  POSTGRES_MEMORY_LIMIT: "1g"
+  POSTGRES_MEMORY_RESERVATION: "512m"
+  POSTGRES_CPU_LIMIT: "1.0"
+  POSTGRES_CPU_RESERVATION: "0.5"
+  
+  # PgAdmin Configuration
+  PGADMIN_DEFAULT_EMAIL: "admin@mcp.local"
+  PGADMIN_PORT: "5050"
+  PGADMIN_MEMORY_LIMIT: "256m"
+  PGADMIN_MEMORY_RESERVATION: "128m"
+  PGADMIN_CPU_LIMIT: "0.3"
+  PGADMIN_CPU_RESERVATION: "0.2"
+  
+  # External Service Configuration
+  KAGGLE_DATA_DIR: "/data"
+  MSSQL_SERVER: "host.docker.internal"
+  MSSQL_DATABASE: "test_ai"
+  MSSQL_USER: "sa"
+  MSSQL_PORT: "1433"
+  MSSQL_ENCRYPT: "false"
+  MSSQL_TRUST_SERVER_CERTIFICATE: "true"

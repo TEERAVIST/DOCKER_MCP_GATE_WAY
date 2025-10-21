@@ -1,0 +1,201 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-gateway
+  namespace: mcp-gateway
+  labels:
+    app.kubernetes.io/name: mcp-gateway
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mcp-gateway
+  template:
+    metadata:
+      labels:
+        app: mcp-gateway
+        app.kubernetes.io/name: mcp-gateway
+        app.kubernetes.io/component: gateway
+    spec:
+      containers:
+      - name: mcp-gateway
+        image: ghcr.io/ibm/mcp-context-forge:0.8.0
+        ports:
+        - containerPort: 4444
+          name: http
+        env:
+        - name: MCPGATEWAY_UI_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: mcp-gateway-config
+              key: MCPGATEWAY_UI_ENABLED
+        - name: PLUGINS_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: mcp-gateway-config
+              key: PLUGINS_ENABLED
+        - name: MCPGATEWAY_ADMIN_API_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: mcp-gateway-config
+              key: MCPGATEWAY_ADMIN_API_ENABLED
+        - name: HOST
+          valueFrom:
+            configMapKeyRef:
+              name: mcp-gateway-config
+              key: HOST
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: mcp-gateway-config
+              key: PORT
+        - name: JWT_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mcp-gateway-secrets
+              key: JWT_SECRET_KEY
+        - name: BASIC_AUTH_USER
+          valueFrom:
+            secretKeyRef:
+              name: mcp-gateway-secrets
+              key: BASIC_AUTH_USER
+        - name: BASIC_AUTH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mcp-gateway-secrets
+              key: BASIC_AUTH_PASSWORD
+        - name: AUTH_REQUIRED
+          valueFrom:
+            configMapKeyRef:
+              name: mcp-gateway-config
+              key: AUTH_REQUIRED
+        - name: PLATFORM_ADMIN_EMAIL
+          valueFrom:
+            secretKeyRef:
+              name: mcp-gateway-secrets
+              key: PLATFORM_ADMIN_EMAIL
+        - name: PLATFORM_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mcp-gateway-secrets
+              key: PLATFORM_ADMIN_PASSWORD
+        - name: PLATFORM_ADMIN_FULL_NAME
+          valueFrom:
+            secretKeyRef:
+              name: mcp-gateway-secrets
+              key: PLATFORM_ADMIN_FULL_NAME
+        - name: DATABASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: mcp-gateway-config
+              key: DATABASE_URL
+        - name: TZ
+          valueFrom:
+            configMapKeyRef:
+              name: mcp-gateway-config
+              key: TZ
+        - name: http_proxy
+          valueFrom:
+            configMapKeyRef:
+              name: mcp-gateway-config
+              key: PROXY_SERVER
+              optional: true
+        - name: https_proxy
+          valueFrom:
+            configMapKeyRef:
+              name: mcp-gateway-config
+              key: PROXY_SERVER
+              optional: true
+        - name: HTTP_PROXY
+          valueFrom:
+            configMapKeyRef:
+              name: mcp-gateway-config
+              key: PROXY_SERVER
+              optional: true
+        - name: HTTPS_PROXY
+          valueFrom:
+            configMapKeyRef:
+              name: mcp-gateway-config
+              key: PROXY_SERVER
+              optional: true
+        - name: no_proxy
+          valueFrom:
+            configMapKeyRef:
+              name: mcp-gateway-config
+              key: PROXY_BYPASS
+              optional: true
+        - name: NO_PROXY
+          valueFrom:
+            configMapKeyRef:
+              name: mcp-gateway-config
+              key: PROXY_BYPASS
+              optional: true
+        volumeMounts:
+        - name: mcp-data
+          mountPath: /data
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "0.25"
+          limits:
+            memory: "512Mi"
+            cpu: "0.5"
+        # Liveness Probe - restarts container if it becomes unresponsive
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 4444
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+          successThreshold: 1
+        # Readiness Probe - marks container as ready to accept traffic
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 4444
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+        # Startup Probe - gives container time to start before liveness/readiness checks
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 4444
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 12  # 2 minutes total startup time
+          successThreshold: 1
+        command:
+        - bash
+        - -lc
+        - |
+          # Initialize database if needed
+          echo "[mcp-gateway] Starting MCP Gateway..." &&
+          echo "[mcp-gateway] Database URL: ${DATABASE_URL}" &&
+          echo "[mcp-gateway] Port: ${PORT}" &&
+          
+          # Create data directory if it doesn't exist
+          mkdir -p /data &&
+          
+          # Wait for database to be ready using timeout
+          echo "[mcp-gateway] Waiting for database..." &&
+          timeout 60 bash -c 'until echo > /dev/tcp/postgres/5432; do sleep 2; done' &&
+          echo "[mcp-gateway] Database is ready!" &&
+          
+          # Start the gateway
+          exec ./run-gunicorn.sh
+      volumes:
+      - name: mcp-data
+        persistentVolumeClaim:
+          claimName: mcp-gateway-data-pvc
+      restartPolicy: Always
