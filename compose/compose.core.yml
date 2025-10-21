@@ -48,8 +48,8 @@ services:
       PLATFORM_ADMIN_PASSWORD: "${PLATFORM_ADMIN_PASSWORD}"
       PLATFORM_ADMIN_FULL_NAME: "${PLATFORM_ADMIN_FULL_NAME}"
       
-      # Database configuration
-      DATABASE_URL: "sqlite:////data/mcp.db"
+      # Database configuration - PostgreSQL for production
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-mcp_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-mcp_gateway}"
       
       # Common environment variables
       <<: *common-variables
@@ -75,6 +75,10 @@ services:
 
     networks:
       - mcpnet
+
+    depends_on:
+      postgres:
+        condition: service_healthy
 
     # Profiles for selective startup
     profiles: ["core", "all", "minimal"]

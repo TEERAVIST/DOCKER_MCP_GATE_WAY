@@ -23,6 +23,9 @@ include:
   # Network configuration and shared resources
   - compose/compose.net.yml
   
+  # Database services (PostgreSQL)
+  - compose/compose.database.yml
+  
   # Core MCP Gateway service
   - compose/compose.core.yml
   

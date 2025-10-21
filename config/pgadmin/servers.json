@@ -1,0 +1,16 @@
+{
+    "Servers": {
+        "1": {
+            "Name": "MCP Gateway PostgreSQL",
+            "Group": "Servers",
+            "Host": "postgres",
+            "Port": 5432,
+            "MaintenanceDB": "postgres",
+            "Username": "mcp_user",
+            "SSLMode": "prefer",
+            "ConnectionParameters": {
+                "sslmode": "prefer"
+            }
+        }
+    }
+}
