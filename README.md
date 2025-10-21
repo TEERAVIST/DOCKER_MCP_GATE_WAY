@@ -30,8 +30,8 @@ chmod +x deploy.sh
 The deployment script will provide the access URL:
 ```
 http://<service-ip>:4444
-Username: poomisi0841824189@gmail.com
-Password: kanasorn123
+Username: admin
+Password: admin123
 ```
 
 ## 📋 Project Structure
