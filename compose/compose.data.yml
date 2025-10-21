@@ -20,7 +20,7 @@ x-bridge-config: &bridge-config
 
 # Common health check configuration
 x-health-check: &health-check
-  interval: ${HEALTH_CHECK_INTERVAL:-30s}
+  interval: ${HEALTH_CHECK_INTERVAL:-30}s
   timeout: 10s
   retries: 3
   start_period: 40s
@@ -40,7 +40,7 @@ services:
   kaggle-bridge:
     image: python:3.11-slim
     container_name: kaggle-bridge
-    env_file: .env
+    env_file: ../.env
     
     # Use common bridge configuration
     <<: *bridge-config
@@ -117,7 +117,7 @@ services:
   mssql-bridge:
     image: python:3.11-slim
     container_name: mssql-bridge
-    env_file: .env
+    env_file: ../.env
     
     # Use common bridge configuration
     <<: *bridge-config

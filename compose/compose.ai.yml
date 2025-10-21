@@ -20,7 +20,7 @@ x-bridge-config: &bridge-config
 
 # Common health check configuration
 x-health-check: &health-check
-  interval: ${HEALTH_CHECK_INTERVAL:-30s}
+  interval: ${HEALTH_CHECK_INTERVAL:-30}s
   timeout: 10s
   retries: 3
   start_period: 40s
@@ -40,7 +40,7 @@ services:
   context7-bridge:
     image: supercorp/supergateway:latest
     container_name: context7-bridge
-    env_file: .env
+    env_file: ../.env
     
     # Use common bridge configuration
     <<: *bridge-config
@@ -92,7 +92,7 @@ services:
   gistpad-bridge:
     image: supercorp/supergateway:latest
     container_name: gistpad-bridge
-    env_file: .env
+    env_file: ../.env
     
     # Use common bridge configuration
     <<: *bridge-config

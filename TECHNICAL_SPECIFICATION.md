@@ -120,7 +120,7 @@ services:
   kaggle-bridge:
     image: python:3.11-slim
     container_name: kaggle-bridge
-    env_file: .env
+    env_file: ../.env
     <<: *bridge-config
     environment:
       <<: *common-variables
@@ -173,7 +173,7 @@ services:
   mssql-bridge:
     image: python:3.11-slim
     container_name: mssql-bridge
-    env_file: .env
+    env_file: ../.env
     <<: *bridge-config
     environment:
       <<: *common-variables

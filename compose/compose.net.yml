@@ -36,7 +36,7 @@ x-bridge-config: &bridge-config
 
 # Common health check configuration
 x-health-check: &health-check
-  interval: ${HEALTH_CHECK_INTERVAL:-30s}
+  interval: ${HEALTH_CHECK_INTERVAL:-30}
   timeout: 10s
   retries: 3
   start_period: 40s
