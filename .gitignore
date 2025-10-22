@@ -8,6 +8,7 @@
 
 # Kubernetes secrets (should never be committed)
 k8s/secrets/mcp-gateway-secrets.yaml
+!k8s/secrets/mcp-gateway-sealed-secrets.yaml
 
 # Public keys
 *.pem
