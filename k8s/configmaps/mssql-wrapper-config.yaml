@@ -1,0 +1,84 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mssql-wrapper-script
+  namespace: mcp-gateway
+  labels:
+    app.kubernetes.io/name: mcp-gateway
+    app.kubernetes.io/component: mssql-wrapper
+data:
+  mssql-connection-wrapper.py: |
+    #!/usr/bin/env python3
+    """
+    Wrapper script to handle MSSQL connection without encryption issues
+    """
+    import os
+    import sys
+    
+    # Set environment variables to disable encryption before importing anything
+    os.environ['MSSQL_ENCRYPT'] = 'false'
+    os.environ['MSSQL_TRUST_SERVER_CERTIFICATE'] = 'true'
+    
+    # Also set pymssql specific flags
+    os.environ['PYMSSQL_ENCRYPT'] = 'false'
+    os.environ['PYMSSQL_TRUST_SERVER_CERTIFICATE'] = 'true'
+    
+    # Monkey patch the connect function at the module level
+    import builtins
+    
+    # Store original import
+    original_import = builtins.__import__
+    
+    def patched_import(name, *args, **kwargs):
+        module = original_import(name, *args, **kwargs)
+        
+        # Patch pyodbc if imported
+        if name == 'pyodbc' and hasattr(module, 'connect'):
+            if not hasattr(module.connect, '_patched'):
+                orig_connect = module.connect
+                def patched_connect(*a, **kw):
+                    kw.pop('encrypt', None)
+                    kw.pop('trust_server_certificate', None)
+                    kw.pop('TrustServerCertificate', None)
+                    return orig_connect(*a, **kw)
+                module.connect = patched_connect
+                module.connect._patched = True
+                sys.stderr.write("[wrapper] pyodbc.connect patched\\n")
+        
+        # Patch pymssql if imported
+        if name == 'pymssql' and hasattr(module, 'connect'):
+            if not hasattr(module.connect, '_patched'):
+                orig_connect = module.connect
+                def patched_connect(*a, **kw):
+                    kw.pop('encrypt', None)
+                    kw.pop('trust_server_certificate', None)
+                    kw.pop('TrustServerCertificate', None)
+                    return orig_connect(*a, **kw)
+                module.connect = patched_connect
+                module.connect._patched = True
+                sys.stderr.write("[wrapper] pymssql.connect patched\\n")
+        
+        # Patch sqlalcheny if imported (it might be using sqlalchemy)
+        if name == 'sqlalchemy' and hasattr(module, 'engine'):
+            if hasattr(module.engine, 'create_engine'):
+                orig_create_engine = module.engine.create_engine
+                def patched_create_engine(*a, **kw):
+                    # Remove encrypt from connect_args
+                    if 'connect_args' in kw:
+                        kw['connect_args'].pop('encrypt', None)
+                        kw['connect_args'].pop('trust_server_certificate', None)
+                        kw['connect_args'].pop('TrustServerCertificate', None)
+                    return orig_create_engine(*a, **kw)
+                module.engine.create_engine = patched_create_engine
+                sys.stderr.write("[wrapper] sqlalchemy.create_engine patched\\n")
+        
+        return module
+    
+    # Apply the patch
+    builtins.__import__ = patched_import
+    
+    # Now run the actual mssql server
+    from mssql_mcp_server import main
+    
+    if __name__ == "__main__":
+        sys.exit(main())

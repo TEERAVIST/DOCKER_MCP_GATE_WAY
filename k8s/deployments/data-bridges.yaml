@@ -80,32 +80,31 @@ spec:
         - bash
         - -lc
         - |
-          set -euo pipefail;
-          export http_proxy="${PROXY_SERVER:-}"; export https_proxy="${PROXY_SERVER:-}";
-          export HTTP_PROXY="$http_proxy";       export HTTPS_PROXY="$https_proxy";
-          export no_proxy="${PROXY_BYPASS:-localhost,127.0.0.1}"; export NO_PROXY="$no_proxy";
+          set -euo pipefail
+          export PIP_DISABLE_PIP_VERSION_CHECK=1
 
-          # Fix SSL and repository issues
-          apt-get clean;
-          rm -rf /var/lib/apt/lists/*;
-          apt-get update --allow-releaseinfo-change || true;
-          
-          # Install packages with retry logic
-          for i in 1 2 3; do
-            apt-get install -y --no-install-recommends python3-pip curl nodejs npm && break || sleep 10;
-          done;
-          rm -rf /var/lib/apt/lists/*;
+          # 1) deps เบื้องต้น + uv
+          apt-get update -y
+          apt-get install -y --no-install-recommends curl ca-certificates
+          rm -rf /var/lib/apt/lists/*
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          export PATH="/root/.local/bin:$PATH"
 
-          # Install Python packages with SSL verification disabled if needed
-          pip install --no-cache-dir --break-system-packages --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org mcp-contextforge-gateway || \
-          pip install --no-cache-dir --break-system-packages --no-ssl-verify mcp-contextforge-gateway || \
-          echo "Warning: mcp-contextforge-gateway installation failed, continuing anyway";
+          # 2) ติดตั้ง "ContextForge MCP Gateway" ซึ่งให้โมดูล mcpgateway.*
+          #    (เลือกอย่างใดอย่างหนึ่ง)
+          python -m pip install --no-cache-dir mcp-contextforge-gateway \
+          || uv pip install --system mcp-contextforge-gateway
 
-          mkdir -p /tmp /data;
-          echo "Health check ready" > /tmp/health.txt;
+          # 3) ตรวจเช็ค uvx + เตรียมโฟลเดอร์
+          uvx --version
+          mkdir -p "${KAGGLE_DATA_DIR:-/data}" /tmp
 
-          # เริ่ม MCP Kaggle ผ่าน translator (stdio -> SSE)
-          exec python -m mcpgateway.translate --stdio "npx -y @kaggle/mcp@latest" --expose-sse --host 0.0.0.0 --port 9000
+          # 4) รัน Kaggle MCP (stdio) แล้วแปลเป็น SSE@9000 ด้วย mcpgateway.translate
+          exec python -m mcpgateway.translate \
+            --stdio "uvx kaggle-mcp" \
+            --expose-sse \
+            --host 0.0.0.0 \
+            --port 9000
       volumes:
       - name: kaggle-data
         persistentVolumeClaim:
@@ -121,7 +120,6 @@ metadata:
   labels:
     app.kubernetes.io/name: mcp-gateway
     app.kubernetes.io/component: mssql-bridge
-    app.kubernetes.io/managed-by: kubectl
 spec:
   replicas: 1
   selector:
@@ -141,7 +139,11 @@ spec:
         ports:
         - containerPort: 9020
           name: http
+        volumeMounts:
+        - name: mssql-wrapper
+          mountPath: /app/wrapper
         env:
+        # === MSSQL connection (ตาม README ของโปรเจ็กต์) ===
         - name: MSSQL_SERVER
           valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: MSSQL_SERVER } }
         - name: MSSQL_DATABASE
@@ -150,12 +152,17 @@ spec:
           valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: MSSQL_USER } }
         - name: MSSQL_PASSWORD
           valueFrom: { secretKeyRef: { name: mcp-gateway-secrets, key: MSSQL_PASSWORD } }
+        # optional ตามต้องการ
         - name: MSSQL_PORT
-          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: MSSQL_PORT } }
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: MSSQL_PORT, optional: true } }
         - name: MSSQL_ENCRYPT
-          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: MSSQL_ENCRYPT } }
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: MSSQL_ENCRYPT, optional: true } }
+        - name: MSSQL_ODBC_DRIVER
+          value: "ODBC Driver 18 for SQL Server"
         - name: MSSQL_TRUST_SERVER_CERTIFICATE
-          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: MSSQL_TRUST_SERVER_CERTIFICATE } }
+          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: MSSQL_TRUST_SERVER_CERTIFICATE, optional: true } }
+
+        # === Proxy (ถ้ามี) ===
         - name: http_proxy
           valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
         - name: https_proxy
@@ -168,15 +175,11 @@ spec:
           valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_BYPASS, optional: true } }
         - name: NO_PROXY
           valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_BYPASS, optional: true } }
-        - name: npm_config_proxy
-          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
-        - name: npm_config_https_proxy
-          valueFrom: { configMapKeyRef: { name: mcp-gateway-config, key: PROXY_SERVER, optional: true } }
-        - name: PYTHONPATH
-          value: ""
+
         resources:
           requests: { memory: "256Mi", cpu: "200m" }
           limits:   { memory: "768Mi", cpu: "600m" }
+
         startupProbe:
           tcpSocket: { port: 9020 }
           failureThreshold: 30
@@ -193,33 +196,83 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 2
           failureThreshold: 3
+
         command:
         - bash
         - -lc
         - |
-          set -euo pipefail &&
-          export http_proxy="${PROXY_SERVER:-}"; export https_proxy="${PROXY_SERVER:-}";
-          export HTTP_PROXY="$http_proxy"; export HTTPS_PROXY="$https_proxy";
-          export no_proxy="${PROXY_BYPASS:-localhost,127.0.0.1}"; export NO_PROXY="$no_proxy";
-          
-          # Fix SSL and repository issues
-          apt-get clean;
-          rm -rf /var/lib/apt/lists/*;
-          apt-get update --allow-releaseinfo-change || true;
-          
-          # Install packages with retry logic
-          for i in 1 2 3; do
-            apt-get install -y --no-install-recommends python3-pip curl nodejs npm && break || sleep 10;
-          done;
-          rm -rf /var/lib/apt/lists/*;
-
-          # Install Python packages with SSL verification disabled if needed
-          pip install --no-cache-dir --break-system-packages --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org mcp-contextforge-gateway || \
-          pip install --no-cache-dir --break-system-packages --no-ssl-verify mcp-contextforge-gateway || \
-          echo "Warning: mcp-contextforge-gateway installation failed, continuing anyway";
-          
-          mkdir -p /tmp &&
-          echo "Health check ready" > /tmp/health.txt &&
-          exec python -m mcpgateway.translate --stdio "npx -y @mssql/mcp@latest" --expose-sse --host 0.0.0.0 --port 9020
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+         
+          # --- ODBC18 + pyodbc ตามที่ตั้งไว้แล้ว ---
+          apt-get update -y
+          apt-get install -y --no-install-recommends curl gnupg ca-certificates apt-transport-https
+          curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /usr/share/keyrings/msodbc.gpg
+          echo "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/msodbc.gpg] https://packages.microsoft.com/debian/12/prod bookworm main" > /etc/apt/sources.list.d/microsoft-prod.list
+          apt-get update -y
+          ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
+          rm -rf /var/lib/apt/lists/*
+         
+          python -m pip install --upgrade pip
+          pip install --no-cache-dir pyodbc mcp-contextforge-gateway microsoft_sql_server_mcp
+         
+          # --- ฟิลเตอร์ kwargs → ต่อเติมลงใน connection string สำหรับ pyodbc ---
+          mkdir -p /app/patch
+          cat >/app/patch/sitecustomize.py <<'PY'
+          import sys, re
+          sys.stderr.write("[sitecustomize] loaded\n")
+          try:
+              import pyodbc as _pyodbc
+              _orig = _pyodbc.connect
+              def _connect(*args, **kwargs):
+                  # ถ้ามี encrypt/trust_server_certificate เป็น kwargs ให้ย้ายไปไว้ใน connection string
+                  cs = None
+                  if args:
+                      cs = args[0] if isinstance(args[0], str) else None
+                  # อ่านแฟล็ก
+                  enc_kw = kwargs.pop('encrypt', None)
+                  tsc_kw = kwargs.pop('trust_server_certificate', kwargs.pop('TrustServerCertificate', None))
+                  # แปลง bool/string → yes/no
+                  def _yn(v, yes="yes", no="no"):
+                      if v is None: return None
+                      if isinstance(v, bool): return yes if v else no
+                      s = str(v).strip().lower()
+                      return yes if s in ("1","true","yes","on","y") else no
+                  enc = _yn(enc_kw)
+                  tsc = _yn(tsc_kw)
+                  # ต่อเติมลงใน connection string ถ้ามี
+                  def _append(cs, key, val):
+                      if val is None: return cs
+                      # ลบของเดิมถ้ามี แล้วใส่ใหม่
+                      if cs is None: cs = ""
+                      cs = re.sub(rf'(?i)(^|;){key}\s*=\s*[^;]*', '', cs)
+                      if cs and not cs.endswith(';'): cs += ';'
+                      return cs + f"{key}={val};"
+                  if enc is not None or tsc is not None:
+                      cs = _append(cs, "Encrypt", "yes" if enc=="yes" else "no")
+                      if tsc is not None:
+                          cs = _append(cs, "TrustServerCertificate", "yes" if tsc=="yes" else "no")
+                      # แทน args[0] เป็น cs ใหม่
+                      if args:
+                          args = (cs,) + tuple(args[1:])
+                      else:
+                          kwargs["connection_string"] = cs  # เผื่อมีคนใช้คีย์แปลก
+                  return _orig(*args, **kwargs)
+              _pyodbc.connect = _connect
+              sys.stderr.write("[sitecustomize] pyodbc.connect patched (kwargs->connstr)\n")
+          except Exception as e:
+              sys.stderr.write(f"[sitecustomize] pyodbc patch skipped: {e}\n")
+          PY
+          export PYTHONPATH="/app/patch${PYTHONPATH:+:$PYTHONPATH}"
+         
+          # เปิดเป็น STDIO→SSE
+          exec python -m mcpgateway.translate \
+              --stdio "python /app/wrapper/mssql-connection-wrapper.py" \
+              --expose-sse --host 0.0.0.0 --port 9020
+      volumes:
+      - name: mssql-wrapper
+        configMap:
+          name: mssql-wrapper-script
+          defaultMode: 0755
       restartPolicy: Always
 ---
