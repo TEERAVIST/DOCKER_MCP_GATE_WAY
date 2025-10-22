@@ -10,3 +10,11 @@ kubeseal.exe --format=yaml --cert=sealed-secrets-cert.crt < temp-secret.yaml > k
 ```bash
 kubectl apply -f k8s/secrets/mcp-gateway-sealed-secret.yaml
 ```
+
+# Apply Secrets
+```bash
+kubeseal -f k8s/secrets/mcp-gateway-secrets.yaml -w k8s/secrets/mcp-gateway-sealed-secret.yaml
+```
+```bash
+kubectl apply -f k8s/secrets/mcp-gateway-sealed-secret.yaml
+```

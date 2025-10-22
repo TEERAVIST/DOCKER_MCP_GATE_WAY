@@ -1,7 +1,4 @@
-# filename: k8s/deployments/ai-bridges.yaml
----
-# filename: k8s/deployments/ai-bridges.yaml
----
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -67,7 +64,6 @@ spec:
           timeoutSeconds: 2
           failureThreshold: 3
 
-        # ✅ สำคัญ: ใส่ค่า --stdio เป็น "สตริงเดียว"
         command:
         - supergateway
         - --port
