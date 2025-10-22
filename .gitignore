@@ -9,6 +9,9 @@
 # Kubernetes secrets (should never be committed)
 k8s/secrets/mcp-gateway-secrets.yaml
 
+# Public keys
+*.pem
+
 # Data directories
 data/
 logs/

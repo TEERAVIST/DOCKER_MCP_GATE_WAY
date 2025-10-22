@@ -1,5 +1,7 @@
 # filename: k8s/deployments/ai-bridges.yaml
 ---
+# filename: k8s/deployments/ai-bridges.yaml
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -44,34 +46,42 @@ spec:
         resources:
           requests: { memory: "256Mi", cpu: "200m" }
           limits:   { memory: "512Mi", cpu: "500m" }
-        # ✅ startupProbe ปล่อยเวลาติดตั้ง npx
+
+        # โปรบ: รอช่วง npx ดึงแพ็กเกจ
         startupProbe:
           tcpSocket: { port: 9030 }
-          failureThreshold: 30     # ~5 นาที (30 * 10s)
+          failureThreshold: 30
           periodSeconds: 10
-        # ✅ ใช้ tcpSocket probe แทน httpGet "/"
+
         livenessProbe:
           tcpSocket: { port: 9030 }
           initialDelaySeconds: 10
           periodSeconds: 20
           timeoutSeconds: 3
           failureThreshold: 3
+
         readinessProbe:
           tcpSocket: { port: 9030 }
           initialDelaySeconds: 5
           periodSeconds: 10
           timeoutSeconds: 2
           failureThreshold: 3
+
+        # ✅ สำคัญ: ใส่ค่า --stdio เป็น "สตริงเดียว"
         command:
         - supergateway
-        - --stdio
-        - npx
-        - -y
-        - "@upstash/context7-mcp@latest"
         - --port
         - "9030"
-        - --host
-        - "0.0.0.0"
+        - --ssePath
+        - /sse
+        - --messagePath
+        - /message
+        - --outputTransport
+        - sse
+        - --stdio
+        - >
+          CONTEXT7_API_KEY=$(CONTEXT7_API_KEY) npx -y @upstash/context7-mcp@latest
+
       restartPolicy: Always
 ---
 apiVersion: apps/v1
@@ -118,34 +128,38 @@ spec:
         resources:
           requests: { memory: "256Mi", cpu: "200m" }
           limits:   { memory: "512Mi", cpu: "500m" }
+
         startupProbe:
           tcpSocket: { port: 9010 }
           failureThreshold: 30
           periodSeconds: 10
+
         livenessProbe:
           tcpSocket: { port: 9010 }
           initialDelaySeconds: 10
           periodSeconds: 20
           timeoutSeconds: 3
           failureThreshold: 3
+
         readinessProbe:
           tcpSocket: { port: 9010 }
           initialDelaySeconds: 5
           periodSeconds: 10
           timeoutSeconds: 2
           failureThreshold: 3
-        # ✅ แยก args ห้ามใส่เป็นสตริงเดียว
+
         command:
         - supergateway
-        - --stdio
-        - npx
-        - -y
-        - gistpad-mcp
-        - --daily
-        - --starred
-        - --archived
         - --port
         - "9010"
-        - --host
-        - "0.0.0.0"
+        - --ssePath
+        - /sse
+        - --messagePath
+        - /message
+        - --outputTransport
+        - sse
+        - --stdio
+        - >
+          GITHUB_TOKEN=$(GITHUB_TOKEN) npx -y gistpad-mcp --daily --starred --archived
+
       restartPolicy: Always
